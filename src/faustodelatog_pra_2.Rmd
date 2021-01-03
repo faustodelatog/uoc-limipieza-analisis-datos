@@ -1,0 +1,15 @@
+---
+title: "Práctica 2"
+author: "Fausto De La Torre"
+date: "enero 2021"
+output: 
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
