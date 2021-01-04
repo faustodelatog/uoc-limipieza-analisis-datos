@@ -14,30 +14,322 @@ output:
     toc_depth: '2'
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval=T, echo=T)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(gridExtra)
+library(stringr)
 ```
 
 # Descripción del dataset
-```{r}
-datos <- read.csv("../data/titanic.csv", header=T, sep=";")
-```
+Trabajaremos con el conjunto de datos “Titanic” que recoge datos sobre la famosa embarcación. El set de datos sobre el que trabajaremos fue recogido del sitio de kaggle (https://www.kaggle.com/c/titanic/data); trabajeremos específicamente sobre los 891 registros del set de entrenamiento (train.csv) que contiene 12 variables descritas a continuación:
+
+- **PassengerId** Identificador del pasajero
+
+- **Survived** Indica si el pasajero sobrevivió (1) o no (2)
+
+- **Pclass** Indica la clase del pasajero
+
+- **Name** Nombre del pasajero
+
+- **Sex** Sexo del pasajero
+
+- **Age** Edad en años del pasajero
+
+- **SibSp** Número de hermanos o cónyuges a bordo
+
+- **Parch** Número de padres o hijos a bordo
+
+- **Ticket** Número de ticket
+
+- **Fare** Precio del ticket
+
+- **Cabin** Número de cabina
+
+- **Embarked** Puerto de embarcación: C = Cherbourg, Q = Queenstown, S = Southampton
 
 # Integración y selección de datos a analizar
+En este conjunto de datos se busca analizar el impacto de las diferentes variables para determinar si el pasejero sobrevió o no al hundimiento del titanic. Lo que buscamos es conocer cuales son las variables que dictaminan la sobreviviencia de los pasajeros o si es una cuestión al azar.
 
 # Limpieza de datos
+Primero procedemos a leer el set de datos y ha obtener estadísticas muy básicas
+```{r}
+pasajeros <- read.csv("../data/titanic_train.csv", header=T, sep=",", stringsAsFactors = FALSE)
+head(pasajeros)
+summary(pasajeros)
+```
 
 ## Valores vacíos
+Se verifican los valores que se encuentran vacíos.
+```{r}
+print(colSums(pasajeros==""))
+```
+Se asigna "S" como valor para la variable "Embarked" en los dos registros que están vacíos ya que es el valor que está presente en la mayoría de registros.
+```{r}
+# Imputación de valores Embarked basados en la mayoría
+pasajeros$Embarked[pasajeros$Embarked == ""] = "S"
+```
 
-## Valores extremos
+Se elimina la variable "Cabin" ya que existen 687 registros vacíos que no aportarán demasiado en el análisis.
+```{r}
+pasajeros$Cabin = NULL
+```
+
+Se verifican los valores que se encuentran como NA.
+```{r}
+colSums(is.na(pasajeros))
+```
+
+Se calcula el valor medio para la edad tanto de hombres como de mujeres para asignar a los valores desconocidos.
+```{r}
+# # Imputación de valores Age basados en la media por sexo
+pasajeros$Age[is.na(pasajeros$Age) & pasajeros$Sex == "male"] = mean(pasajeros$Age[!is.na(pasajeros$Age) & pasajeros$Sex == "male"])
+pasajeros$Age[is.na(pasajeros$Age) & pasajeros$Sex == "female"] = mean(pasajeros$Age[!is.na(pasajeros$Age) & pasajeros$Sex == "female"])
+```
+
+## Valores Extremos
+Primero vamos a ver las distribuciones de los valores continuos para ver posibles outliers y veremos también las la distribución de las variables discretas
+```{r}
+# Se hace un melt de las variables continuas para poder graficarlas
+columns.numeric = c("Age", "SibSp", "Parch", "Fare")
+melt.pasajeros <- melt(pasajeros[,columns.numeric])
+
+#Visualización de distribuciones de variables continuas
+ggplot(melt.pasajeros) + aes(value) + stat_density() + facet_wrap(~variable, scales = "free")
+```
+
+Si vemos las distribuciones, podemos observar que existen valores extremos para las 4 variables continuas, sin embargo son valores que parecen ser válidos, no son errores.
+
+Se elimina los registros del valor extremo de Fare cerca de 500
+```{r}
+pasajeros = pasajeros[pasajeros$Fare < 300,]
+```
+
+# Agregación de valores
+De acuerdo al nombre de los pasajeros vamos a determinar el título que tienen (Mr., Mrs., etc.)
+```{r}
+pasajeros$Title = str_extract(pasajeros$Name, "(?<=, ).+(?=\\. )")
+
+# Se corrige el único registro fallido
+pasajeros$Title[grepl("Mrs+\\.+ Martin +\\(+Elizabeth L", pasajeros$Title)] = "Mrs"
+
+#Se agrupan los títulos
+pasajeros$Title[pasajeros$Title == "Capt"] = "Crew"
+pasajeros$Title[pasajeros$Title == "Col"] = "Crew"
+pasajeros$Title[pasajeros$Title == "Major"] = "Crew"
+pasajeros$Title[pasajeros$Title == "Rev"] = "Crew"
+pasajeros$Title[pasajeros$Title == "Dr"] = "Crew"
+
+pasajeros$Title[pasajeros$Title == "Master"] = "Royalty"
+pasajeros$Title[pasajeros$Title == "Sir"] = "Royalty"
+pasajeros$Title[pasajeros$Title == "Don"] = "Royalty"
+pasajeros$Title[pasajeros$Title == "Lady"] = "Royalty"
+pasajeros$Title[pasajeros$Title == "the Countess"] = "Royalty"
+pasajeros$Title[pasajeros$Title == "Jonkheer"] = "Royalty"
+
+pasajeros$Title[pasajeros$Title == "Ms"] = "Mrs"
+pasajeros$Title[pasajeros$Title == "Mme"] = "Mrs"
+pasajeros$Title[pasajeros$Title == "Mlle"] = "Miss"
+
+unique(pasajeros$Title)
+```
+
+
+# Discretización de variables
+Vamos a discretizar las variables continuas SibSp y Parch ya que contienen valores extremos a la derecha a los que vamos a agrupar en un solo grupo.
+```{r}
+pasajeros$SibSp[pasajeros$SibSp >= 2] = '2+'
+pasajeros$Parch[pasajeros$Parch >= 2] = '2+'
+```
+
+
+Discretizamos cuando tiene sentido y en función de cada variable.
+```{r}
+apply(pasajeros,2, function(x) length(unique(x)))
+```
+
+
+```{r}
+# Discretizamos las variables con pocas clases
+cols<-c("Survived","Pclass","Sex","Embarked", "SibSp", "Parch", "Title")
+for (i in cols){
+  pasajeros[,i] <- as.factor(pasajeros[,i])
+}
+```
+
+Después de los cambios, analizamos la nueva estructura del conjunto de pasajeros
+```{r}
+str(pasajeros)
+```
+
+Vemos la distribución de las variables discretas mediante un gráfico de barras
+```{r}
+#Visualización de distribuciones de variables discretas
+sex_plot = ggplot(pasajeros) + aes(Sex) + geom_bar()
+embarked_plot = ggplot(pasajeros) + aes(Embarked) + geom_bar()
+class_plot = ggplot(pasajeros) + aes(Pclass) + geom_bar()
+parch_plot = ggplot(pasajeros) + aes(Parch) + geom_bar()
+sibsp_plot = ggplot(pasajeros) + aes(SibSp) + geom_bar()
+survived_plot = ggplot(pasajeros) + aes(Survived) + geom_bar()
+title_plot = ggplot(pasajeros) + aes(Title) + geom_bar()
+
+grid.arrange(sex_plot, embarked_plot, class_plot, parch_plot, sibsp_plot, survived_plot, title_plot, ncol = 2)
+```
 
 # Análisis de datos
 
 ## Selección de los grupos de datos a analizar
+Vamos a realizar un análisis visual de los diferentes grupos en función de la variable "Survived"
+```{r}
+
+sex_survived_plot = ggplot(data=pasajeros,aes(x=Sex,fill=Survived))+geom_bar() + labs(x="Sex", y="Passengers")+ggtitle("Survived by Sex")
+
+embarked_survived_plot = ggplot(data=pasajeros,aes(x=Embarked,fill=Survived))+geom_bar() + labs(x="Embarked", y="Passengers")+ggtitle("Survived by Embarked")
+
+age_survived_plot = ggplot(data=pasajeros,aes(x=Age,fill=Survived))+geom_histogram(binwidth = 5) + labs(x="Age", y="Passengers")+ggtitle("Survived by Age")
+
+fare_survived_plot = ggplot(data=pasajeros,aes(x=Fare,fill=Survived))+geom_histogram(binwidth = 50) + labs(x="Fare", y="Passengers")+ggtitle("Survived by Fare")
+
+class_survived_plot = ggplot(data=pasajeros,aes(x=Pclass,fill=Survived)) + geom_bar() + labs(x="Class", y="Passengers")+ggtitle("Survived by Class")
+
+parch_survived_plot = ggplot(data=pasajeros,aes(x=Parch,fill=Survived)) + geom_bar() + labs(x="Parch", y="Passengers")+ggtitle("Survived by Parch")
+
+sibsp_survived_plot = ggplot(data=pasajeros,aes(x=SibSp,fill=Survived)) + geom_bar() + labs(x="SibSp", y="Passengers")+ggtitle("Survived by SibSp")
+
+title_survived_plot = ggplot(data=pasajeros,aes(x=Title,fill=Survived)) + geom_bar() + labs(x="Title", y="Passengers")+ggtitle("Survived by Title")
+
+
+grid.arrange(sex_survived_plot, embarked_survived_plot, age_survived_plot, fare_survived_plot, class_survived_plot, parch_survived_plot, sibsp_survived_plot, title_survived_plot, ncol = 2, newpage = TRUE)
+```
+
+Ahora vemos los gráficos en terminos relativos.
+
+```{r}
+
+sex_survived_plot = ggplot(data=pasajeros,aes(x=Sex,fill=Survived))+geom_bar(position="fill") + labs(x="Sex", y="Passengers")+ggtitle("Survived by Sex")
+
+embarked_survived_plot = ggplot(data=pasajeros,aes(x=Embarked,fill=Survived))+geom_bar(position="fill") + labs(x="Embarked", y="Passengers")+ggtitle("Survived by Embarked")
+
+age_survived_plot = ggplot(data=pasajeros,aes(x=Age,fill=Survived))+geom_histogram(binwidth = 5, position="fill") + labs(x="Age", y="Passengers")+ggtitle("Survived by Age")
+
+fare_survived_plot = ggplot(data=pasajeros,aes(x=Fare,fill=Survived))+geom_histogram(binwidth = 50, position="fill") + labs(x="Fare", y="Passengers")+ggtitle("Survived by Fare")
+
+class_survived_plot = ggplot(data=pasajeros,aes(x=Pclass,fill=Survived)) + geom_bar(position="fill") + labs(x="Class", y="Passengers")+ggtitle("Survived by Class")
+
+parch_survived_plot = ggplot(data=pasajeros,aes(x=Parch,fill=Survived)) + geom_bar(position="fill") + labs(x="Parch", y="Passengers")+ggtitle("Survived by Parch")
+
+sibsp_survived_plot = ggplot(data=pasajeros,aes(x=SibSp,fill=Survived)) + geom_bar(position="fill") + labs(x="SibSp", y="Passengers")+ggtitle("Survived by SibSp")
+
+title_survived_plot = ggplot(data=pasajeros,aes(x=Title,fill=Survived)) + geom_bar(position="fill") + labs(x="Title", y="Passengers")+ggtitle("Survived by Title")
+
+grid.arrange(sex_survived_plot, embarked_survived_plot, age_survived_plot, fare_survived_plot, class_survived_plot, parch_survived_plot, sibsp_survived_plot, title_survived_plot, ncol = 2)
+```
+
+Los grupos de interés que exploraremos son por sexo, puerto de embarque y clase
+
+```{r}
+pasajeros.hombres = pasajeros[pasajeros$Sex == "male",]
+pasajeros.mujeres = pasajeros[pasajeros$Sex == "female",]
+
+pasajeros.clase1 = pasajeros[pasajeros$Pclass == 1,]
+pasajeros.clase2 = pasajeros[pasajeros$Pclass == 2,]
+pasajeros.clase3 = pasajeros[pasajeros$Pclass == 3,]
+
+pasajeros.cherbourg = pasajeros[pasajeros$Embarked == "C",]
+pasajeros.queenstown = pasajeros[pasajeros$Embarked == "Q",]
+pasajeros.southampton = pasajeros[pasajeros$Embarked == "S",]
+
+```
 
 ## Comprobación de la normalidad y homogeneidad de la varianza
 
-## Pruebas estadísticas
+Podemos observar que la distribución de las dos variables continuas no son normales, sin embargo lo vamos a verificar mediante la prueba de Shapiro-Wilk en la que la hipótesis nula nos dice que la distribución es normal.
+```{r}
+p_value_age = shapiro.test(pasajeros$Age)$p.value
+p_value_fare = shapiro.test(pasajeros$Fare)$p.value
 
-# Representación
+print(sprintf("p-value para Age del test de shapiro: %.6e", p_value_age))
+print(sprintf("p-value para Fare del test de shapiro: %.6e", p_value_fare))
+```
+Los valores de p menores al nivel de significancia de 5% nos dice que podemos descartar la hipótesis nula, por lo tanto concluimos que las distribuciones no son normales para Age y Fare.
+
+Mediante la prueba de homoscedasticidad para determinar la homogeneidad o no de las varianzas, utilizaremos F-test cuya hipótesis nula nos dice que existe homoscedasticidad (varianzas similares) para la variable Fare
+
+```{r}
+var.test(pasajeros.hombres$Fare, pasajeros.mujeres$Fare)
+```
+El p-value del F-test es menor que el nivel de significancia 0.05, por lo que podemos concluir que se rechaza la hipótesis nula, que nos dice que hay una diferencia significativa en las varianzas de las dos muestras. Las diferencias ente
+
+## Pruebas estadísticas
+Lo que buscamos es determinar que variables son las que más influyen en determinar si un pasajero sobrevivió o no al hunidmiento del titanic.
+
+Primero vamos a identificar las relaciones entre algunas variables
+
+```{r}
+ggplot(data = pasajeros, aes(x=Age, fill=Survived)) + geom_histogram(binwidth = 5, position = "fill") + facet_wrap(~Sex)
+```
+
+La mayor parte de sobrevivientes son mujeres o niños (hombres y mujeres)
+
+```{r}
+ggplot(data = pasajeros, aes(x=Pclass, fill=Survived)) + geom_bar() + facet_wrap(~Sex)
+```
+
+- Casi todas las mujeres de primera y segunda clase sobrevivieron, sin embargo el número de mujeres en 3ra clase es similar al de las otras clases.
+- Los hombres en general se sacrificaron, sin embargo se evidencia que si los hombres estaban en 1ra clase tenían más probabilidades de sobrevivir.
+
+```{r}
+ggplot(data = pasajeros, aes(x=Title, fill=Survived)) + geom_bar(position = "fill") + facet_wrap(~Embarked)
+```
+
+- A excepción de los Señores (Mr.), las personas que se embarcaron en Cherbourg tuvieron más probabilidades de sobrevivir, es así que la tripulación que se embarcó en dicho puerto es la que sobrevive casi en su mayoría.
+- Un dato curioso, la realeza embarcada en Queenstown no sobrevivió.
+
+```{r}
+ggplot(data = pasajeros, aes(x=Embarked, fill=Pclass)) + geom_bar()
+```
+
+Vamos a generar un árbol de decisión del cual sacaremos ciertas reglas utilizando las variables "Age", "Embarked", "Pclass", "Sex"
+
+```{r}
+X = pasajeros[,c("Age", "Embarked", "Pclass", "Sex")]
+y = pasajeros$Survived
+model <- C50::C5.0(X, y,rules=TRUE )
+summary(model)
+```
+Se puede ver que la variable más determinante es Sex, seguido por la clase y por la edad.
+
+- Si vemos la regla 3 se puede ver que casi todas las mujeres en 1ra y 2da clase sobrevivieron.
+- Si vemos la regla 1 se puede ver que casi todos los hombres adultos no sobrevicvieron al naufragio de la embarcación.
+
+Vamos a visualizar el árbol para mayor claridad
+
+```{r}
+model <- C50::C5.0(X, y)
+plot(model)
+```
+Este modelo cometió 154 errores, lo que representa 17.3% de la muestra. Esto nos da suficiente explicabilidad para nuestro análisis. 
+
+A continuación crearemos un modelo similar pero escogiendo la variable Title en lugar de Sex eliminando solamente utilizaremos las variables "Embarked", "Pclass", "Title". Queremos ver si podemos tener más insights.
+```{r}
+X = pasajeros[,c("Embarked", "Pclass", "Title")]
+y = pasajeros$Survived
+model <- C50::C5.0(X, y,rules=TRUE )
+summary(model)
+```
+
+Este modelo es 
+
+```{r}
+model <- C50::C5.0(X, y)
+plot(model)
+```
 
 # Conclusiones
+Luego de haber analizado los datos relacionados en función de la variable "survived" podemos obtener las siguientes conclusiones:
+
+- Los hombres, especialmente los de 2da y tercera clase fueron los que más se sacrificaron
+- La realeza, y las mujeres de 1ra y 2da clase fueron las pasajeras a salvar mayoritariamente así como los niños y niñas.
+- La mayor parte de los pasajeros se embarcaron en Southampton, dichos pasajeros murieron en su mayoría, sin embargo en porcentaje es muy similar a los otros puertos, esto nos dice que no hubo una predilección por puerto para la sobreviviencia.
+- Casi todas las personas que se embarcaron en Q fueron a 3ra clase.
