@@ -135,6 +135,12 @@ pasajeros$Title[pasajeros$Title == "Mlle"] = "Miss"
 unique(pasajeros$Title)
 ```
 
+# Generación de un nuevo archivo con datos limpios
+Se crea un nuevo archivo con los datos limpios
+```{r}
+write.csv(pasajeros, '../data/out/titanic.csv')
+```
+
 
 # Discretización de variables
 Vamos a discretizar las variables continuas SibSp y Parch ya que contienen valores extremos a la derecha a los que vamos a agrupar en un solo grupo.
